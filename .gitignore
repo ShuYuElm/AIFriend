@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+.env
+experiments/logs/
+.pytest_cache/
+
+# 真实的她/他的配置与人设稿：只留在本地，不上传（含 .bak 备份）
+config/*.local.*
+
+# 项目内部契约，不随仓库分发
+AGENTS.md
+
+# 设计与调研文档：只在本地
+docs/DESIGN.md
+docs/RESEARCH.md

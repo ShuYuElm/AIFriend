@@ -1,0 +1,20 @@
+# 示例世界配置 —— 城市是编的，换成你俩真实所在。
+# 换成自己的：复制成 config/world.local.yaml 再改。
+#
+# 天气用 Open-Meteo，节假日用 holiday-cn，都免费、不用 Key。
+# 拉不到会静默跳过，不影响对话。
+
+enabled: true
+refresh_minutes: 30
+
+her:
+  city: 成都
+  latitude: 30.57
+  longitude: 104.07
+
+him:
+  city: 上海
+  latitude: 31.23
+  longitude: 121.47
+
+holidays: true

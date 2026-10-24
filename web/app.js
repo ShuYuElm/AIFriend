@@ -186,4 +186,14 @@ formEl.addEventListener("submit", async (e) => {
   }
 });
 
+// 设置面板改完名字后，同步标题和头像用的名字
+window.addEventListener("persona-changed", (event) => {
+  const name = event.detail && event.detail.name;
+  if (name) {
+    herName = name;
+    titleEl.textContent = name;
+    document.title = name;
+  }
+});
+
 boot();

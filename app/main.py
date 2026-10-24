@@ -19,18 +19,30 @@ from . import __version__
 from .chat import ChatEngine
 from .config import ROOT, Settings, load_settings
 from .db import Database
+from .editing import (
+    editable_to_persona,
+    local_path,
+    persona_to_editable,
+    read_yaml,
+    validate_persona_data,
+    write_yaml,
+)
 from .heartbeat import Heartbeat
 from .life import load_life
 from .llm import build_provider
 from .lorebook import Lorebook
 from .models import Bubble
-from .persona import PersonaStore, now_local
+from .persona import PersonaStore, now_local, parse_persona
 from .profile import ProfileStore
 
 logger = logging.getLogger("aigirl.main")
 
 WEB_DIR = ROOT / "web"
-STATIC_FILES = {"app.js": "application/javascript", "style.css": "text/css"}
+STATIC_FILES = {
+    "app.js": "application/javascript",
+    "settings.js": "application/javascript",
+    "style.css": "text/css",
+}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -139,7 +151,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/api/state")
     async def state(request: Request) -> dict[str, Any]:
         db: Database = request.app.state.db
-        persona = request.app.state.persona
+        # 每次现读：人设卡可能在编辑面板里刚改过，不能用启动时的快照
+        persona = request.app.state.engine.persona_store.load()
         today = now_local(request.app.state.settings.tz).date().isoformat()
         memories = await db.list_memories(20)
         experiences = await db.experiences_for_day(today)
@@ -171,6 +184,69 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "mock": getattr(provider, "name", "") == "mock",
             "sse_clients": request.app.state.bus.subscriber_count,
         }
+
+    # ---------------------------------------------------------------- 配置编辑
+
+    @app.get("/api/persona")
+    async def get_persona(request: Request) -> dict[str, Any]:
+        store = request.app.state.engine.persona_store
+        card = store.load()
+        raw = read_yaml(store.path)
+        return {
+            "ok": True,
+            "persona": persona_to_editable(card, raw),
+            "path": str(local_path(store.path)),
+        }
+
+    @app.put("/api/persona")
+    async def put_persona(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+        store = request.app.state.engine.persona_store
+        target = local_path(store.path)
+        base = read_yaml(target if target.exists() else store.path)
+        data = editable_to_persona(payload, base)
+
+        missing = validate_persona_data(data)
+        if missing:
+            return {"ok": False, "errors": [f"这些字段不能为空：{'、'.join(missing)}"]}
+
+        try:
+            parse_persona(data)  # 先验证结构，再落盘
+            write_yaml(target, data)
+            store.invalidate(target)
+            card = store.load()
+        except Exception as exc:  # 解析或写入失败都不该把服务搞崩
+            logger.warning("保存人设卡失败：%s", exc)
+            return {"ok": False, "errors": [f"保存失败：{exc}"]}
+
+        return {"ok": True, "name": card.name, "path": str(target)}
+
+    @app.get("/api/profile")
+    async def get_profile(request: Request) -> dict[str, Any]:
+        profile = request.app.state.engine.profile_store.load()
+        return {"ok": True, "name": profile.name, "facts": profile.facts}
+
+    @app.put("/api/profile")
+    async def put_profile(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+        facts = payload.get("facts")
+        if not isinstance(facts, list):
+            return {"ok": False, "errors": ["facts 必须是数组"]}
+
+        store = request.app.state.engine.profile_store
+        target = local_path(store.path)
+        base = read_yaml(target if target.exists() else store.path)
+        data = dict(base)
+        data.pop("sections", None)  # 表单是扁平列表，分组信息不再保留
+        data["facts"] = [str(f).strip() for f in facts if str(f).strip()]
+
+        try:
+            write_yaml(target, data)
+            store.invalidate(target)
+            profile = store.load()
+        except Exception as exc:
+            logger.warning("保存用户档案失败：%s", exc)
+            return {"ok": False, "errors": [f"保存失败：{exc}"]}
+
+        return {"ok": True, "count": len(profile.facts), "path": str(target)}
 
     @app.post("/api/heartbeat/tick")
     async def heartbeat_tick(request: Request) -> dict[str, Any]:

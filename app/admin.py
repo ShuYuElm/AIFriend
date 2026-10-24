@@ -12,9 +12,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from .db import Database
+from .editing import local_path as _local_path
+from .editing import read_yaml as _read_yaml
+from .editing import write_yaml as _write_yaml
 from .persona import PersonaStore
 from .profile import ProfileStore
 
@@ -38,56 +39,6 @@ HELP = """可用的指令
 /mem                        最近 10 条记忆
 /forget <id 或 关键词>       归档记忆（不删除，可恢复）
 /help                       这张表"""
-
-
-def _local_path(path: Path) -> Path:
-    """总是写到 *.local.yaml，示例文件不动。"""
-    if path.name.endswith(".local.yaml"):
-        return path
-    stem = path.name[: -len(".yaml")] if path.name.endswith(".yaml") else path.name
-    return path.with_name(stem + ".local.yaml")
-
-
-def _read_yaml(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        logger.warning("读取 %s 失败：%s", path, exc)
-        return {}
-
-
-def _write_yaml(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # 先留一份原文件：重写成规范 YAML 会丢注释
-    if path.exists():
-        backup = path.with_suffix(path.suffix + ".bak")
-        if not backup.exists():
-            backup.write_bytes(path.read_bytes())
-    path.write_text(
-        yaml.dump(
-            data,
-            Dumper=_ReadableDumper,
-            allow_unicode=True,
-            sort_keys=False,
-            width=200,
-            default_flow_style=False,
-        ),
-        encoding="utf-8",
-    )
-
-
-class _ReadableDumper(yaml.SafeDumper):
-    """多行文本用 | 块，别变成带换行转义的一行。"""
-
-
-def _represent_str(dumper: yaml.SafeDumper, value: str):
-    style = "|" if "\n" in value else None
-    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
-
-
-_ReadableDumper.add_representer(str, _represent_str)
 
 
 class AdminCommands:

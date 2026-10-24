@@ -186,3 +186,190 @@ body {
   opacity: 0.45;
   cursor: default;
 }
+
+/* ---------------------------------------------------------------- 设置抽屉 */
+
+.phone { position: relative; }
+
+.menu-btn {
+  position: absolute;
+  left: 10px;
+  top: 15px;
+  width: 30px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  color: #333;
+  cursor: pointer;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 15;
+}
+
+.scrim.open { opacity: 1; pointer-events: auto; }
+
+.drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 88%;
+  max-width: 360px;
+  background: #f7f7f7;
+  transform: translateX(-102%);
+  transition: transform 0.22s ease;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.12);
+}
+
+.drawer.open { transform: none; }
+
+.drawer-bar {
+  flex: 0 0 auto;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: #fff;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.drawer-title {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  color: #444;
+  cursor: pointer;
+}
+
+.drawer-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  border: none;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 15px;
+  color: #111;
+  cursor: pointer;
+}
+
+.menu-item .hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #999;
+}
+
+.menu-item:active { background: #f0f0f0; }
+
+.form-group { margin-bottom: 14px; }
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 5px;
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+  width: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  background: #fff;
+  color: #111;
+  outline: none;
+  resize: vertical;
+}
+
+.form-group input:focus,
+.form-group textarea:focus { border-color: #07c160; }
+
+.lore-card {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.lore-head { display: flex; align-items: center; gap: 8px; }
+
+.lore-head input[type="text"] { flex: 1 1 auto; }
+
+.lore-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #666;
+}
+
+.btn {
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.btn-primary { background: #07c160; color: #fff; width: 100%; }
+
+.btn-ghost {
+  background: #fff;
+  border: 1px dashed #ccc;
+  color: #333;
+  width: 100%;
+}
+
+.btn-danger {
+  background: transparent;
+  color: #c33;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.form-status {
+  margin: 10px 2px;
+  font-size: 13px;
+  color: #07c160;
+  min-height: 18px;
+}
+
+.form-status.err { color: #c33; }

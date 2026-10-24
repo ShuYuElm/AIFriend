@@ -9,6 +9,7 @@
 <body>
   <div class="phone">
     <header class="topbar">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="设置">☰</button>
       <div class="title" id="title">…</div>
       <div class="sub" id="sub">连接中</div>
     </header>
@@ -19,7 +20,19 @@
       <input id="input" type="text" autocomplete="off" placeholder="发消息" maxlength="500">
       <button id="send" type="submit">发送</button>
     </form>
+
+    <div class="scrim" id="scrim"></div>
+
+    <aside class="drawer" id="drawer" aria-hidden="true">
+      <div class="drawer-bar">
+        <button class="icon-btn" id="drawerBack" type="button" hidden>‹</button>
+        <span class="drawer-title" id="drawerTitle">设置</span>
+        <button class="icon-btn" id="drawerClose" type="button">×</button>
+      </div>
+      <div class="drawer-body" id="drawerBody"></div>
+    </aside>
   </div>
   <script src="/static/app.js"></script>
+  <script src="/static/settings.js"></script>
 </body>
 </html>

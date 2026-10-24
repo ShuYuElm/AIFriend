@@ -1,6 +1,7 @@
 """Web API：页面、聊天、历史、状态、SSE 总线。"""
 
 import asyncio
+import shutil
 
 from fastapi.testclient import TestClient
 
@@ -10,15 +11,20 @@ from app.main import create_app
 
 
 def _settings(tmp_path) -> Settings:
+    # 人设/档案复制到临时目录：编辑接口会写 *.local.yaml，不能碰仓库里的示例
+    persona = tmp_path / "persona.yaml"
+    profile = tmp_path / "user_profile.yaml"
+    shutil.copy(ROOT / "config" / "persona.yaml", persona)
+    shutil.copy(ROOT / "config" / "user_profile.yaml", profile)
     return Settings(
         llm_base_url="http://localhost",
         llm_api_key="",
         llm_model="mock",
         tz="Asia/Shanghai",
         db_path=tmp_path / "web.db",
-        persona_path=ROOT / "config" / "persona.yaml",
+        persona_path=persona,
         life_path=ROOT / "config" / "life.yaml",
-        profile_path=ROOT / "config" / "user_profile.yaml",
+        profile_path=profile,
         seed_path=ROOT / "config" / "seed_memories.yaml",
         world_path=tmp_path / "no-world.yaml",
     )
@@ -29,8 +35,10 @@ def test_index_and_static(tmp_path):
         page = client.get("/")
         assert page.status_code == 200
         assert "phone" in page.text
+        assert "drawer" in page.text  # 设置抽屉的挂载点
 
         assert client.get("/static/app.js").status_code == 200
+        assert client.get("/static/settings.js").status_code == 200
         assert client.get("/static/style.css").status_code == 200
         assert client.get("/static/../app/main.py").status_code == 404
 

@@ -15,3 +15,6 @@ AGENTS.md
 # 设计与调研文档：只在本地
 docs/DESIGN.md
 docs/RESEARCH.md
+
+# 给 Agent 看的项目内 skill：本地即可，别把内部约定推到公开仓库
+.dsh/

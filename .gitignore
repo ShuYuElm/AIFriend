@@ -18,3 +18,6 @@ docs/RESEARCH.md
 
 # 给 Agent 看的项目内 skill：本地即可，别把内部约定推到公开仓库
 .dsh/
+
+# IDE 配置：各人环境不同，不入库
+.idea/

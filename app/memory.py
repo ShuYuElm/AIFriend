@@ -38,6 +38,12 @@ DETAIL_TOP = 2
 DETAIL_SPAN = 2
 DETAIL_CHARS = 70
 
+# 核心层：重要到不需要召回的记忆
+CORE_MIN_IMPORTANCE = 4
+CORE_KINDS = ("relation", "event", "preference", "self")
+CORE_LIMIT = 6
+CORE_MAX_CHARS = 240
+
 EXTRACT_MARKER = "【任务：记忆抽取】"
 SUMMARY_MARKER = "【任务：写日记】"
 ROLLUP_MARKER = "【任务：归纳这段对话】"
@@ -160,6 +166,21 @@ def collapse_by_episode(items: Iterable[MemoryItem]) -> list[MemoryItem]:
         emitted.add(item.episode_id)
         out.append(rep[item.episode_id])
     return out
+
+
+def render_core(items: Iterable[MemoryItem]) -> str:
+    """核心层：不依赖查询、每轮都在场的关系骨架。"""
+    items = list(items)
+    if not items:
+        return ""
+    lines = [
+        "## 你一定记得的事（你们之间的，别主动复述）",
+        "",
+    ]
+    lines.extend(f"- {item.content}" for item in items)
+    lines.append("")
+    lines.append("这些事不用主动提，和话题有关的时候自然会想起来。")
+    return "\n".join(lines)
 
 
 def render(items: Iterable[MemoryItem], now) -> str:
@@ -543,9 +564,44 @@ class Memory:
 
     # ---------------------------------------------------------- 渲染
 
+    async def core(self, limit: int = CORE_LIMIT) -> list[MemoryItem]:
+        """重要到不需要召回的记忆：你们怎么认识的、一起经历过的大事。
+
+        召回按字面相关性打分，"今天吃什么"永远匹配不到"高铁站分开"，
+        但这些恰恰是关系的骨架，所以单独开一层，每轮恒注入。
+        """
+        items = [
+            item
+            for item in await self.db.all_memories()
+            if item.importance >= CORE_MIN_IMPORTANCE
+            and item.kind in CORE_KINDS
+            and item.superseded_by is None
+        ]
+        items.sort(key=lambda item: item.created_at or "", reverse=True)
+        items.sort(key=lambda item: item.importance, reverse=True)
+
+        kept: list[MemoryItem] = []
+        total = 0
+        for item in collapse_by_episode(items):
+            length = len(item.content)
+            if kept and total + length > CORE_MAX_CHARS:
+                break
+            kept.append(item)
+            total += length
+            if len(kept) >= limit:
+                break
+        return kept
+
     async def block(self, text: str) -> str:
         now = now_local(self.tz)
         parts: list[str] = []
+
+        core = await self.core()
+        core_ids = {item.id for item in core}
+        core_episodes = {item.episode_id for item in core if item.episode_id}
+        core_block = render_core(core)
+        if core_block:
+            parts.append(core_block)
 
         rollups = await self.db.rollups(ROLLUP_KEEP)
         if rollups:
@@ -563,13 +619,17 @@ class Memory:
                 lines.append(f"- {day}：{row['content']}")
             parts.append("\n".join(lines))
 
-        recalled = await self.recall(text)
+        recalled = [
+            item
+            for item in await self.recall(text)
+            if item.id not in core_ids and item.episode_id not in core_episodes
+        ]
         merged = list(recalled)
 
         # 最近 48 小时记下的事，不管像不像都带上——这是"他刚说过的事"，
         # 只靠相似度召回会漏掉（"有我可以帮忙的吗"跟"论文"没有字面重叠）
         cutoff = now - timedelta(hours=48)
-        seen = {item.id for item in merged}
+        seen = set(core_ids) | {item.id for item in merged}
         for item in await self.db.list_memories(8):
             if item.id in seen:
                 continue

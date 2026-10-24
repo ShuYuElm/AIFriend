@@ -74,12 +74,15 @@ git clone <你的仓库地址> aigirl
 cd aigirl
 
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1     # 激活后提示符前会出现 (.venv)
 pip install -r requirements.txt
 
 copy .env.example .env     # 填 LLM_API_KEY
 python -m uvicorn app.main:app --port 8000
 ```
+
+> **后面的命令都在激活状态下跑。** 不想激活，也可以用 `.\.venv\Scripts\python -m ...`。
+> 直接用系统 Python 也能跑通，但依赖会装进全局环境，别的项目升级包时容易互相影响。
 
 打开 <http://127.0.0.1:8000> 就能聊。
 

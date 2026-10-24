@@ -373,3 +373,43 @@ body {
 }
 
 .form-status.err { color: #c33; }
+/* ---------------------------------------------------------------- 情绪与风格包 */
+
+.mood-line {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: #eef7ee;
+  color: #2c6b2f;
+  font-size: 13px;
+}
+
+.pack-card {
+  display: block;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.pack-card:has(input:checked) {
+  border-color: #07c160;
+  background: #f6fff9;
+}
+
+.pack-head { display: flex; align-items: center; gap: 8px; }
+
+.pack-title { font-size: 15px; font-weight: 600; color: #111; }
+
+.pack-desc { font-size: 12px; color: #888; margin-top: 3px; }
+
+.pack-block {
+  margin-top: 7px;
+  padding-left: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #555;
+  white-space: pre-wrap;
+}

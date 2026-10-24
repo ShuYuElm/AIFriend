@@ -1,4 +1,4 @@
-// 设置抽屉：从侧边列表进入，改角色卡 / 改用户档案。
+// 设置抽屉：从侧边列表进入，改角色卡 / 用户档案 / 说话风格。
 // 依赖 index.html 里的 #menuBtn / #scrim / #drawer 等节点。
 
 (function () {
@@ -58,12 +58,12 @@
     drawerEl.setAttribute("aria-hidden", "true");
   }
 
+  const statusEl = el("div", { class: "form-status" });
+
   function setStatus(text, isError) {
     statusEl.textContent = text;
     statusEl.className = "form-status" + (isError ? " err" : "");
   }
-
-  const statusEl = el("div", { class: "form-status" });
 
   // ---------------------------------------------------------------- 菜单
 
@@ -75,13 +75,30 @@
     return btn;
   }
 
-  function showMenu() {
+  async function showMenu() {
     drawerTitle.textContent = "设置";
     drawerBack.hidden = true;
+
+    const moodLine = el("div", { class: "mood-line", text: "她此刻：…" });
     drawerBody.replaceChildren(
+      moodLine,
       menuItem("角色卡", "她的名字、性格、说话方式、lorebook", showPersonaForm),
-      menuItem("我的档案", "她本来就知道的、关于你的事", showProfileForm)
+      menuItem("我的档案", "她本来就知道的、关于你的事", showProfileForm),
+      menuItem("说话风格", "标准 / 更像人 / 更黏", showPacksForm)
     );
+
+    try {
+      const mood = await fetch("/api/mood").then((r) => r.json());
+      moodLine.textContent = mood.level
+        ? `她此刻：${MoodLabel(mood.level)}（${mood.note || "没特别的事"}）`
+        : "她此刻：平常";
+    } catch (err) {
+      moodLine.textContent = "她此刻：读不到";
+    }
+  }
+
+  function MoodLabel(level) {
+    return { 2: "很亲近", 1: "心情不错", "-1": "有点不高兴", "-2": "在生气" }[level] || "平常";
   }
 
   // ---------------------------------------------------------------- 角色卡
@@ -135,7 +152,11 @@
     function renderLore() {
       loreWrap.replaceChildren();
       entries.forEach((entry, index) => {
-        const keysInput = el("input", { type: "text", placeholder: "关键词，用逗号分隔", value: entry.keys.join(", ") });
+        const keysInput = el("input", {
+          type: "text",
+          placeholder: "关键词，用逗号分隔",
+          value: entry.keys.join(", "),
+        });
         keysInput.addEventListener("input", () => {
           entry.keys = keysInput.value
             .split(/[,，]/)
@@ -183,7 +204,9 @@
     }
 
     renderLore();
-    form.appendChild(el("div", { class: "form-group" }, [el("label", { text: "lorebook（关键词触发）" }), loreWrap]));
+    form.appendChild(
+      el("div", { class: "form-group" }, [el("label", { text: "lorebook（关键词触发）" }), loreWrap])
+    );
 
     const saveBtn = el("button", { class: "btn btn-primary", type: "button", text: "保存" });
     saveBtn.addEventListener("click", async () => {
@@ -208,7 +231,9 @@
           if (res.name) {
             titleEl.textContent = res.name;
             document.title = res.name;
-            window.dispatchEvent(new CustomEvent("persona-changed", { detail: { name: res.name } }));
+            window.dispatchEvent(
+              new CustomEvent("persona-changed", { detail: { name: res.name } })
+            );
           }
         } else {
           setStatus((res.errors || ["保存失败"]).join("；"), true);
@@ -274,6 +299,64 @@
       statusEl
     );
     setStatus("", false);
+  }
+
+  // ---------------------------------------------------------------- 说话风格
+
+  async function showPacksForm() {
+    drawerTitle.textContent = "说话风格";
+    drawerBack.hidden = false;
+    drawerBody.replaceChildren(el("div", { class: "form-status", text: "加载中…" }));
+
+    let data;
+    try {
+      data = await fetch("/api/prompts").then((r) => r.json());
+    } catch (err) {
+      drawerBody.replaceChildren(el("div", { class: "form-status err", text: "读不到风格包" }));
+      return;
+    }
+
+    let selected = data.active;
+
+    const form = el("div");
+    for (const pack of data.packs) {
+      const radio = el("input", { type: "radio", name: "pack", value: pack.id });
+      radio.checked = pack.id === data.active;
+      radio.addEventListener("change", () => {
+        selected = pack.id;
+      });
+
+      const card = el("label", { class: "pack-card" }, [
+        el("div", { class: "pack-head" }, [radio, el("span", { class: "pack-title", text: pack.label })]),
+        el("div", { class: "pack-desc", text: pack.description }),
+      ]);
+      for (const block of pack.blocks) {
+        card.appendChild(el("div", { class: "pack-block", text: `· ${block.text}` }));
+      }
+      form.appendChild(card);
+    }
+
+    const saveBtn = el("button", { class: "btn btn-primary", type: "button", text: "用这个风格" });
+    saveBtn.addEventListener("click", async () => {
+      saveBtn.disabled = true;
+      setStatus("保存中…", false);
+      try {
+        const res = await fetch("/api/prompts", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active: selected }),
+        }).then((r) => r.json());
+        if (res.ok) setStatus("换好了，下一句生效", false);
+        else setStatus((res.errors || ["保存失败"]).join("；"), true);
+      } catch (err) {
+        setStatus("网络错误，没保存上", true);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+
+    drawerBody.replaceChildren(form, saveBtn, statusEl);
+    setStatus("风格只影响语气，不改人设", false);
   }
 
   // ---------------------------------------------------------------- 绑定

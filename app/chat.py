@@ -32,8 +32,11 @@ from .llm import LLMError, LLMProvider
 from .lorebook import Lorebook
 from .memory import Memory
 from .models import Bubble
+from .mood import MoodTracker
 from .persona import PersonaStore, RuntimeContext, build_p1, build_p5, now_local
 from .profile import ProfileStore, build_block as build_profile_block
+from .prompts import STATE_KEY as PROMPT_STATE_KEY
+from .prompts import PromptPacks
 from .search import SearchClient
 from .style import delay_for, split_bubbles
 from .world import World, load_world_config
@@ -86,6 +89,8 @@ class ChatEngine:
         self._book: dict[str, Any] | None = None
         self.memory = Memory(db, provider, settings.tz)
         self.experiences = ExperienceQueue(db, life, settings.tz, self.rng)
+        self.mood = MoodTracker(db, settings.tz)
+        self.packs = PromptPacks(settings.prompts_path)
         self.admin = AdminCommands(
             db, persona_store, profile_store, settings.persona_path, settings.profile_path
         )
@@ -193,7 +198,20 @@ class ChatEngine:
             days_known=self._days_known(persona, now),
             world=await self.world.line(now),
         )
-        messages: list[dict[str, str]] = [{"role": "system", "content": build_p1(persona, ctx)}]
+
+        # 她此刻对他的情绪（规则驱动，不看模型）
+        mood = await self.mood.observe(text, (gap or 0) / 3600 if gap else None, now)
+        mood_line = self.mood.render(mood)
+
+        p1 = build_p1(persona, ctx)
+        if mood_line:
+            p1 += "\n" + mood_line
+        pack_name = await self.db.get_state(PROMPT_STATE_KEY) or self.packs.default_active()
+        pack_text = self.packs.render(str(pack_name))
+        if pack_text:
+            p1 += "\n\n" + pack_text
+
+        messages: list[dict[str, str]] = [{"role": "system", "content": p1}]
 
         profile_block = build_profile_block(self.profile_store.load())
         if profile_block:

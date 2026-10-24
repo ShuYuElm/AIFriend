@@ -34,6 +34,7 @@ from .lorebook import Lorebook
 from .models import Bubble
 from .persona import PersonaStore, now_local, parse_persona
 from .profile import ProfileStore
+from .prompts import STATE_KEY as PROMPT_STATE_KEY
 
 logger = logging.getLogger("aigirl.main")
 
@@ -247,6 +248,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return {"ok": False, "errors": [f"保存失败：{exc}"]}
 
         return {"ok": True, "count": len(profile.facts), "path": str(target)}
+
+    # ---------------------------------------------------------------- 风格与情绪
+
+    @app.get("/api/prompts")
+    async def get_prompts(request: Request) -> dict[str, Any]:
+        engine = request.app.state.engine
+        active = str(await engine.db.get_state(PROMPT_STATE_KEY) or engine.packs.default_active())
+        return {
+            "ok": True,
+            "active": active,
+            "packs": engine.packs.catalog(),
+            "text": engine.packs.render(active),
+        }
+
+    @app.put("/api/prompts")
+    async def put_prompts(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+        engine = request.app.state.engine
+        known = {pack["id"] for pack in engine.packs.catalog()}
+        active = str(payload.get("active") or "").strip()
+        if active not in known:
+            return {"ok": False, "errors": [f"没有这个风格包：{active}"]}
+
+        await engine.db.set_state(PROMPT_STATE_KEY, active)
+        return {"ok": True, "active": active, "text": engine.packs.render(active)}
+
+    @app.get("/api/mood")
+    async def get_mood(request: Request) -> dict[str, Any]:
+        engine = request.app.state.engine
+        mood = await engine.mood.load()
+        return {
+            "ok": True,
+            "level": mood.level,
+            "note": mood.note,
+            "text": engine.mood.render(mood),
+        }
 
     @app.post("/api/heartbeat/tick")
     async def heartbeat_tick(request: Request) -> dict[str, Any]:

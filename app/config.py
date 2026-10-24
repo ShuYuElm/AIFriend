@@ -80,6 +80,7 @@ class Settings:
     seed_path: Path
     world_path: Path = ROOT / "config" / "world.yaml"
     search_enabled: bool = True
+    prompts_path: Path = ROOT / "config" / "prompts.yaml"
 
     @property
     def mock_mode(self) -> bool:
@@ -109,6 +110,7 @@ def load_settings(env_file: Path | None = None) -> Settings:
         profile_path=config_file("user_profile"),
         seed_path=config_file("seed_memories"),
         world_path=config_file("world"),
+        prompts_path=config_file("prompts"),
         search_enabled=os.environ.get("SEARCH_ENABLED", "1").strip().lower()
         not in ("0", "false", "no", "off"),
     )

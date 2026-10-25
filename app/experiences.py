@@ -20,6 +20,9 @@ from .persona import now_local
 SHARE_PROBABILITY = 0.3      # 回复后顺带提起的概率
 EARLIEST_HOUR = 9            # 太早还没经历什么
 LATEST_HOUR = 21             # 21:30 之后不再产生新经历
+EXPERIENCE_TTL_HOURS = 24    # 超过一天没分享的事就作废（status=dropped），不能再当"今天"讲
+BACKFILL_DAYS = 5            # 服务没开的日子，最多补几天
+RETURN_GAP_HOURS = 12        # 隔这么久才回，才提"这几天"
 
 
 @dataclass(slots=True)
@@ -57,6 +60,7 @@ class ExperienceQueue:
     async def ensure_today(self, now: datetime | None = None) -> int:
         """每天生成 0–3 件"今天发生的事"；同一天只生成一次。"""
         now = now or now_local(self.tz)
+        await self.expire_old(now)  # 顺手清理过期，不用另开定时
         if now.hour < EARLIEST_HOUR:
             return 0
 
@@ -93,6 +97,59 @@ class ExperienceQueue:
     async def due(self, now: datetime | None = None) -> list[Experience]:
         now = now or now_local(self.tz)
         rows = await self.db.due_experiences(now.isoformat())
+        return [_to_experience(row) for row in rows]
+
+    async def expire_old(
+        self, now: datetime | None = None, max_age_hours: int = EXPERIENCE_TTL_HOURS
+    ) -> int:
+        """超过一天还没说出口的就过期。
+
+        否则五天前"看悬疑剧"这件事，会在下次聊天时被当成今天的事讲出来。
+        """
+        now = now or now_local(self.tz)
+        before = (now - timedelta(hours=max_age_hours)).isoformat()
+        return await self.db.expire_experiences(before)
+
+    async def backfill_missed_days(
+        self, now: datetime | None = None, days: int = BACKFILL_DAYS
+    ) -> int:
+        """服务没开的那几天，她也在过日子：每天补 1 件。
+
+        只补空缺、不动已有；补出来的当天就会过期，所以只会出现在
+        "这几天我也…"的语境里，不会被当成今天发生的事。
+        """
+        now = now or now_local(self.tz)
+        pool = list(self.life.events)
+        if not pool:
+            return 0
+
+        made = 0
+        for offset in range(days, 0, -1):
+            day = (now - timedelta(days=offset)).date()
+            if await self.db.experiences_for_day(day.isoformat()):
+                continue
+            content = self.rng.choice(pool)
+            hour = self.rng.randint(10, 20)
+            minute = self.rng.randrange(60)
+            occurred = datetime(
+                day.year, day.month, day.day, hour, minute, tzinfo=now.tzinfo
+            )
+            share_after = occurred + timedelta(minutes=self.rng.randint(60, 240))
+            experience_id = await self.db.add_experience(
+                content, occurred.isoformat(), share_after.isoformat(), None
+            )
+            # 补的是历史，直接作废：只能出现在"这几天"的语境里，别当今天
+            await self.db.drop_experience(experience_id)
+            made += 1
+        return made
+
+    async def recent_unshared(
+        self, now: datetime | None = None, days: int = BACKFILL_DAYS, limit: int = 3
+    ) -> list[Experience]:
+        """这几天没说过的事——他隔很久才回来时，用来接一句"这几天我也…"。"""
+        now = now or now_local(self.tz)
+        start = (now - timedelta(days=days)).isoformat()
+        rows = await self.db.experiences_since(start, limit)
         return [_to_experience(row) for row in rows]
 
     async def mark_shared(self, ids: list[int], now: datetime | None = None) -> None:

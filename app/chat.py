@@ -26,7 +26,7 @@ from .config import (
     Settings,
 )
 from .db import Database
-from .experiences import ExperienceQueue, mentions
+from .experiences import RETURN_GAP_HOURS, ExperienceQueue, mentions
 from .life import Life
 from .llm import LLMError, LLMProvider
 from .lorebook import Lorebook
@@ -127,7 +127,38 @@ class ChatEngine:
             await self.db.set_state("relationship_stage", persona.stage)
 
         await self.experiences.ensure_today(self.clock())
+        backfilled = await self.experiences.backfill_missed_days(self.clock())
+        if backfilled:
+            logger.info("补了 %d 天没开服务时的经历", backfilled)
         await self.memory.backfill_episodes()
+        await self._catch_up()
+
+    async def _catch_up(self) -> None:
+        """上次没跑完的后台任务，启动时补一遍。
+
+        关窗口时进程可能被直接结束，归纳/抽取的计数涨了但任务没落库
+        （实测过 msgs_since_rollup=6 而 rollups 表 0 条）。启动时不补，
+        这些对话就永远不会被总结。
+        """
+        rollup_pending = int(await self.db.get_state("msgs_since_rollup", 0))
+        if rollup_pending >= ROLLUP_EVERY_N_USER_MSGS:
+            try:
+                if await self.memory.rollup():
+                    await self.db.set_state("msgs_since_rollup", 0)
+                    logger.info("补做滚动归纳（积压 %d 轮）", rollup_pending)
+            except LLMError as exc:
+                logger.warning("补归纳失败：%s", exc)
+
+        extract_pending = int(await self.db.get_state("msgs_since_extract", 0))
+        if extract_pending >= EXTRACT_EVERY_N_USER_MSGS:
+            recent = await self.db.recent_messages(12)
+            try:
+                added = await self.memory.extract(recent)
+            except LLMError as exc:
+                logger.warning("补抽取失败：%s", exc)
+            else:
+                await self.db.set_state("msgs_since_extract", 0)
+                logger.info("补做记忆抽取（积压 %d 轮，新增 %d 条）", extract_pending, added)
 
     def _load_seed_rows(self) -> list[dict[str, Any]]:
         path = self.settings.seed_path
@@ -235,6 +266,11 @@ class ChatEngine:
         if picked and not SHARE_TOPIC.search(text):
             picked = None
 
+        # 他隔了很久才回来：把这几天她过的日子给他一句，但别当成今天
+        recent_exp = []
+        if gap and gap >= RETURN_GAP_HOURS * 3600:
+            recent_exp = await self.experiences.recent_unshared(now, limit=3)
+
         messages += [
             {"role": m.role, "content": m.content}
             for m in recent
@@ -247,6 +283,13 @@ class ChatEngine:
                 "\n\n他问的正是你今天怎么样，把这件事说给他听，一句话讲完，别解释前因后果："
                 f"\n{picked.content}"
             )
+        if recent_exp:
+            lines = ["## 这几天你过的日子（是前几天的事，别当成今天）", ""]
+            for exp in recent_exp:
+                lines.append(f"- {exp.occurred_at[5:10]}：{exp.content}")
+            lines.append("")
+            lines.append("他刚回来，最多提一句，别一条条报，也别解释自己这些天在干嘛。")
+            p5 += "\n\n" + "\n".join(lines)
         if search_block:
             p5 += "\n\n" + search_block
         messages.append({"role": "system", "content": p5})
@@ -274,6 +317,10 @@ class ChatEngine:
         joined = "\n".join(b.text for b in bubbles)
         if picked and mentions(joined, picked.content):
             await self.experiences.mark_shared([picked.id], now)
+        if recent_exp:
+            told = [exp.id for exp in recent_exp if mentions(joined, exp.content)]
+            if told:
+                await self.experiences.mark_shared(told, now)
 
         meta = {
             "model": self.provider.model,

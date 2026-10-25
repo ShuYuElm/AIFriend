@@ -10,6 +10,7 @@ import asyncio
 import json
 import sqlite3
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -456,6 +457,34 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def _expire_experiences(self, before_iso: str) -> int:
+        # 用 dropped 表示"过期没机会说了"——表里本来就有这个状态，不必改 schema
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE experiences SET status='dropped'"
+                " WHERE status='pending' AND share_after < ?",
+                (before_iso,),
+            )
+            return int(cur.rowcount)
+
+    def _drop_experience(self, experience_id: int) -> int:
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "UPDATE experiences SET status='dropped' WHERE id=? AND status='pending'",
+                (int(experience_id),),
+            )
+            return int(cur.rowcount)
+
+    def _experiences_since(self, start_iso: str, limit: int) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, content, occurred_at, share_after, status, mood"
+                " FROM experiences WHERE occurred_at >= ? AND shared_at IS NULL"
+                " ORDER BY occurred_at DESC LIMIT ?",
+                (start_iso, int(limit)),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def _due_experiences(self, now_iso: str) -> list[dict[str, Any]]:
         with self._lock:
             rows = self._conn.execute(
@@ -575,8 +604,42 @@ class Database:
     async def promises_due(self, now_iso: str, floor_iso: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._promises_due, now_iso, floor_iso)
 
+    async def expire_experiences(self, before_iso: str) -> int:
+        return await asyncio.to_thread(self._expire_experiences, before_iso)
+
+    async def drop_experience(self, experience_id: int) -> int:
+        return await asyncio.to_thread(self._drop_experience, experience_id)
+
+    async def experiences_since(self, start_iso: str, limit: int = 5) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._experiences_since, start_iso, limit)
+
     async def archive_memory(self, memory_id: int) -> int:
         return await asyncio.to_thread(self._archive_memory, memory_id)
+
+    # ---------------------------------------------------------------- 备份
+
+    def _backup_to(self, dest: Path) -> None:
+        # 用 sqlite 自己的 backup，WAL 模式下也一致；不要直接拷文件
+        with self._lock:
+            target = sqlite3.connect(dest)
+            try:
+                self._conn.backup(target)
+            finally:
+                target.close()
+
+    def _prune_backups(self, dest_dir: Path, keep: int) -> None:
+        files = sorted(dest_dir.glob("aigirl-*.db"))
+        for old in files[:-keep] if keep > 0 else []:
+            old.unlink(missing_ok=True)
+
+    async def backup(self, dest_dir: Path, keep: int = 7, stamp: str | None = None) -> Path:
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        stamp = stamp or datetime.now().strftime("%Y%m%d-%H%M%S")
+        dest = dest_dir / f"aigirl-{stamp}.db"
+        await asyncio.to_thread(self._backup_to, dest)
+        await asyncio.to_thread(self._prune_backups, dest_dir, keep)
+        return dest
 
     async def stale_memories(self, cutoff: str, max_importance: int) -> list[MemoryItem]:
         return await asyncio.to_thread(self._stale_memories, cutoff, max_importance)

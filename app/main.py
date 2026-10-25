@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from .adapters.web import EventBus
 from . import __version__
@@ -52,7 +52,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        db_existed = settings.db_path.exists()
         db = Database(settings.db_path)
+        if db_existed:
+            try:
+                saved = await db.backup(
+                    settings.db_path.parent / "backups", keep=7,
+                    stamp=now_local(settings.tz).strftime("%Y%m%d-%H%M%S"),
+                )
+                logger.info("已备份数据库：%s", saved.name)
+            except Exception as exc:
+                logger.warning("备份失败：%s", exc)
         provider = build_provider(settings)
         store = PersonaStore(settings.persona_path)
         profile = ProfileStore(settings.profile_path)
@@ -283,6 +293,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "note": mood.note,
             "text": engine.mood.render(mood),
         }
+
+    @app.get("/api/export")
+    async def export_chat(request: Request) -> PlainTextResponse:
+        """把全部对话导成 Markdown，便于备份或在别处翻看。"""
+        db: Database = request.app.state.db
+        settings: Settings = request.app.state.settings
+        persona = request.app.state.engine.persona_store.load()
+        rows = await db.recent_messages(100000, roles=("user", "assistant"))
+
+        lines = [
+            f"# 和 {persona.name} 的对话",
+            "",
+            f"> 导出时间：{now_local(settings.tz):%Y-%m-%d %H:%M}",
+            "",
+        ]
+        current_day = ""
+        for message in rows:
+            day = str(message.created_at)[:10]
+            if day != current_day:
+                lines += ["", f"## {day}", ""]
+                current_day = day
+            who = "我" if message.role == "user" else persona.name
+            lines.append(f"**{who}** {str(message.created_at)[11:16]}")
+            lines.append("")
+            lines.append(message.content)
+            lines.append("")
+
+        memories = await db.list_memories(200)
+        if memories:
+            lines += ["", "## 她记得的事", ""]
+            lines += [f"- {item.content}" for item in memories]
+
+        return PlainTextResponse(
+            "\n".join(lines),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="aigirl-chat.md"'},
+        )
 
     @app.post("/api/heartbeat/tick")
     async def heartbeat_tick(request: Request) -> dict[str, Any]:
